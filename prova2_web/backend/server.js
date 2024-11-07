@@ -51,12 +51,14 @@ app.post("/login", async (req, res) => {
 // User Registration
 app.post("/register", async (req, res) => {
   const { username, password, email, phone, bio, address, profession, first_name, last_name } = req.body;
-  const role_id = 2;
+  const role_id = 2; // Default role for regular users
 
+  // Check if the username contains "admin"
   if (username.toLowerCase().includes("admin")) {
     return res.status(400).json({ error: "Usernames cannot contain 'admin'." });
   }
 
+  // Check if username or email already exists
   const checkQuery = "SELECT * FROM users WHERE username = ? OR email = ?";
   db.query(checkQuery, [username, email], async (err, results) => {
     if (err) return res.status(500).json({ error: "Database error." });
@@ -64,40 +66,44 @@ app.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Username or email already exists." });
     }
 
+    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Insert user into users table
     const insertUserQuery = "INSERT INTO users (username, password, email, role_id) VALUES (?, ?, ?, ?)";
     db.query(insertUserQuery, [username, hashedPassword, email, role_id], (err, result) => {
       if (err) return res.status(500).json({ error: "Failed to save user." });
 
       const userId = result.insertId;
 
+      // Insert profile information into profile table
       const insertProfileQuery = `
-        INSERT INTO profile (user_id, first_name, last_name, phone, bio, address) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO profile (user_id, first_name, last_name, phone, bio, address, profession) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `;
 
       db.query(
         insertProfileQuery,
         [
           userId,
-          first_name || "First Name",
-          last_name || "Last Name",
-          phone || "phone",
-          bio || "bio info please",
-          address || "type your address"
+          first_name || "First Name", 
+          last_name || "Last Name",  
+          phone || "phone",          
+          bio || "bio info please",  
+          address || "type your address",
+          profession || "your profession"
         ],
         (err) => {
           if (err) return res.status(500).json({ error: "Failed to create user profile." });
-          
-          // Add the user to the broadcast chat
+
+          // Find the broadcast chat or create it if it doesn't exist
           const broadcastChatQuery = "SELECT chat_id FROM chats WHERE name = 'broadcast'";
           db.query(broadcastChatQuery, (err, results) => {
             if (err) return res.status(500).json({ error: "Failed to find broadcast chat." });
 
             const broadcastChatId = results.length > 0 ? results[0].chat_id : null;
 
-            // If the broadcast chat doesn't exist, create it
+            // Create the broadcast chat if it doesn't exist
             if (!broadcastChatId) {
               const createBroadcastChatQuery = `
                 INSERT INTO chats (name, type, num_members, admin_id)
@@ -105,7 +111,7 @@ app.post("/register", async (req, res) => {
               `;
               db.query(createBroadcastChatQuery, (err, result) => {
                 if (err) return res.status(500).json({ error: "Failed to create broadcast chat." });
-                
+
                 const newBroadcastChatId = result.insertId;
                 addUserToChat(userId, newBroadcastChatId, res);
               });
@@ -120,15 +126,14 @@ app.post("/register", async (req, res) => {
   });
 });
 
-// Helper function to add a user to a specific chat
-const addUserToChat = (userId, chatId, res) => {
-  const addUserChatQuery = "INSERT INTO user_chats (user_id, chat_id) VALUES (?, ?)";
-  db.query(addUserChatQuery, [userId, chatId], (err) => {
+// Helper function to add user to a chat
+function addUserToChat(userId, chatId, res) {
+  const addUserToChatQuery = "INSERT INTO user_chats (user_id, chat_id) VALUES (?, ?)";
+  db.query(addUserToChatQuery, [userId, chatId], (err) => {
     if (err) return res.status(500).json({ error: "Failed to add user to broadcast chat." });
-    res.json({ message: "Registration successful! User added to broadcast chat." });
+    res.status(201).json({ message: "User registered successfully and added to broadcast chat." });
   });
-};
-
+}
 
 // Fetch user profile
 app.get("/profile/:userId", (req, res) => {
