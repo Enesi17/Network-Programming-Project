@@ -12,14 +12,31 @@ const Login = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    // Example login logic (you would replace this with actual API logic)
-    // try {
-    //   const response = await login(username, password); // Assume `login` is an API call
-    //   setUser(response.data); // Set user data in context
-    //   navigate("/profile"); // Redirect after successful login
-    // } catch (error) {
-    //   setErrorMessage("Invalid username or password");
-    // }
+    setErrorMessage(""); // Clear any previous error message
+
+    try {
+      const response = await fetch("http://localhost:5000/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username,
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setUser(data); // Set user data in context
+        navigate("/profile"); // Redirect after successful login
+      } else {
+        setErrorMessage(data.error || "Invalid username or password");
+      }
+    } catch (error) {
+      setErrorMessage("An error occurred during login. Please try again.");
+    }
   };
 
   const handleSignup = () => {

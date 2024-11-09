@@ -12,12 +12,14 @@ const Chats = () => {
     const fetchChats = async () => {
       try {
         const endpoint = isAdmin
-          ? "http://localhost:5000/admin/chatrooms"
+          ? "http://localhost:5000/admin/chats"
           : `http://localhost:5000/user/${userId}/chatrooms`;
+
         const response = await fetch(endpoint);
         if (!response.ok) {
           throw new Error("Failed to fetch chatrooms");
         }
+
         const data = await response.json();
         setChats(data);
       } catch (err) {
@@ -32,7 +34,7 @@ const Chats = () => {
 
   const handleChatClick = (chatId) => {
     localStorage.setItem("chatId", chatId); // Store selected chatId
-    window.location.pathname = `/chats/${chatId}`; // Redirect to chat page
+    navigate(`/chatroom/${chatId}`); // Redirect to chat page
   };
 
   if (loading) {
@@ -49,13 +51,13 @@ const Chats = () => {
       <div className="chats-list">
         {chats.length > 0 ? (
           chats.map((chat) => (
-            <div key={chat.id} className="chat-item">
+            <div key={chat.chat_id} className="chat-item">
               <div className="chat-info">
                 <h3>{chat.name}</h3>
                 <span className="chat-type">({chat.type})</span>
               </div>
               <button
-                onClick={() => handleChatClick(chat.id)}
+                onClick={() => handleChatClick(chat.chat_id)}
                 className="open-chat-button"
               >
                 Open

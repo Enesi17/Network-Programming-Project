@@ -575,3 +575,113 @@ input:focus {
 .admin-button:hover {
   background-color: #45a049;
 }
+
+
+.admin-dashboard-button {
+  margin-top: 20px;
+  padding: 10px 15px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.admin-dashboard-button:hover {
+  background-color: #0056b3;
+}
+
+
+/* ChatRoom.css */
+
+/* Container for the entire chat room */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 600px;
+  margin: 0 auto;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  background-color: #f9f9f9;
+}
+
+/* Header section for chat title */
+.chat-container h2 {
+  text-align: center;
+  padding: 10px;
+  background-color: #007bff;
+  color: white;
+  margin: 0;
+  font-size: 1.25em;
+}
+
+/* Message list container */
+.messages-container {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  background-color: #fff;
+  border-bottom: 1px solid #ddd;
+}
+
+/* Individual message item */
+.message-item {
+  margin-bottom: 15px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background-color: #f1f1f1;
+  color: #333;
+  max-width: 80%;
+}
+
+/* Different color for messages from the logged-in user */
+.message-item.self {
+  background-color: #007bff;
+  color: white;
+  align-self: flex-end;
+}
+
+/* Username text */
+.message-item strong {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+/* Message input area */
+.message-input-container {
+  display: flex;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-top: 1px solid #ddd;
+}
+
+/* Message input box */
+.message-input {
+  flex: 1;
+  padding: 10px;
+  font-size: 1em;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  margin-right: 10px;
+}
+
+/* Send button */
+.send-button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background-color 0.3s ease;
+}
+
+.send-button:hover {
+  background-color: #0056b3;
+}

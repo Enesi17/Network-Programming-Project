@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import "../index.css"; 
+import "../../index.css"; 
 
 const NewUser = () => {
     const navigate = useNavigate();
@@ -20,7 +20,7 @@ const NewUser = () => {
     };
   
     const handleBack = () => {
-      navigate("/login");
+      navigate("/profile");
     }
     
     return (

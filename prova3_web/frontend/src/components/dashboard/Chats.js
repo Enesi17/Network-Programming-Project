@@ -5,38 +5,25 @@ const Chats = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const userId = localStorage.getItem("userId");
-  const isAdmin = localStorage.getItem("isAdmin") === "true";
-
   useEffect(() => {
     const fetchChats = async () => {
       try {
-        // Simulate API delay
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        const response = await fetch("http://localhost:5000/chats"); // API call to fetch chats
+        if (!response.ok) {
+          throw new Error("Failed to load chatrooms");
+        }
 
-        // Mock data for chats
-        const mockData = isAdmin
-          ? [
-              { id: 1, name: "Admin Chatroom 1", type: "Admin", lastMessage: "Last message in Admin Chatroom 1" },
-              { id: 2, name: "Admin Chatroom 2", type: "Admin", lastMessage: "Last message in Admin Chatroom 2" },
-              { id: 3, name: "Admin Chatroom 3", type: "Admin", lastMessage: "Last message in Admin Chatroom 3" }
-            ]
-          : [
-              { id: 4, name: "User Chatroom 1", type: "User", lastMessage: "Last message in User Chatroom 1" },
-              { id: 5, name: "User Chatroom 2", type: "User", lastMessage: "Last message in User Chatroom 2" },
-              { id: 6, name: "User Chatroom 3", type: "User", lastMessage: "Last message in User Chatroom 3" }
-            ];
-
-        setChats(mockData);
+        const data = await response.json();
+        setChats(data);
       } catch (err) {
-        setError("Failed to load chatrooms");
+        setError(err.message);
       } finally {
         setLoading(false);
       }
     };
 
     fetchChats();
-  }, [isAdmin]);
+  }, []);
 
   const handleChatClick = (chatId) => {
     localStorage.setItem("chatId", chatId); // Store selected chatId
@@ -61,6 +48,7 @@ const Chats = () => {
               <div className="chat-info">
                 <h3>{chat.name}</h3>
                 <span className="chat-type">({chat.type})</span>
+                {chat.created_by && <p className="created-by">Created by: {chat.created_by}</p>}
               </div>
               <button
                 onClick={() => handleChatClick(chat.id)}
@@ -68,7 +56,6 @@ const Chats = () => {
               >
                 Open
               </button>
-              <p className="last-message">{chat.lastMessage}</p>
             </div>
           ))
         ) : (
