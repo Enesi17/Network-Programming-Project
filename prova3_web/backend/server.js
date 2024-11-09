@@ -6,6 +6,11 @@ const socketIo = require("socket.io");
 const mysql = require("mysql2");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
+const crypto = require('crypto');
+const jwt = require("jsonwebtoken");
+
+const hashMessage = (message) => crypto.createHash('sha256').update(message).digest('hex');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +24,22 @@ const io = socketIo(server, {
 // Middleware
 app.use(cors({ origin: process.env.CLIENT_ORIGIN }));
 app.use(express.json());
+
+const authenticateToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Access denied, token missing!" });
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+      if (err) return res.status(403).json({ error: "Invalid token" });
+      req.user = user; // Attach user info to request
+      next();
+  });
+};
+
+// Protect routes with authenticateToken
+app.use("/profile", authenticateToken);
+app.use("/chatrooms/:chatId/messages", authenticateToken);
+
 
 // MySQL database connection setup with pooling
 const db = mysql.createPool({
@@ -55,7 +76,7 @@ app.post("/register", async (req, res) => {
       console.error("Database check error:", err);
       return res.status(500).json({ error: "Database error during user check." });
     }
-    
+
     if (results.length > 0) {
       return res.status(400).json({ error: "Username or email already exists." });
     }
@@ -71,7 +92,7 @@ app.post("/register", async (req, res) => {
         }
         const userId = result.insertId;
 
-        // Update the insertProfileQuery to match all columns in the Profile table
+        // Insert the user's profile
         const insertProfileQuery = `
           INSERT INTO profile (user_id, phone, bio, address, profession, education_level)
           VALUES (?, ?, ?, ?, ?, ?)
@@ -89,7 +110,20 @@ app.post("/register", async (req, res) => {
             console.error("Failed to create user profile:", err);
             return res.status(500).json({ error: "Failed to create user profile." });
           }
-          res.json({ message: "Registration successful!" });
+
+          // Generate JWT token
+          const token = jwt.sign(
+            { userId: userId, roleId: role_id },
+            process.env.JWT_SECRET, // Make sure this is set as an environment variable
+            { expiresIn: "1h" }
+          );
+
+          res.json({
+            message: "Registration successful!",
+            token, // Return the token for immediate login
+            userId,
+            role_id
+          });
         });
       });
     } catch (hashError) {
@@ -126,14 +160,23 @@ app.post("/login", async (req, res) => {
 
       const user = results[0];
       try {
+        // Verify the password
         const isPasswordValid = await bcrypt.compare(password, user.password);
-
         if (!isPasswordValid) {
           return res.status(401).json({ error: "Invalid username or password." });
         }
 
+        // Generate JWT token upon successful login
+        const token = jwt.sign(
+          { userId: user.user_id, roleId: user.role_id },
+          process.env.JWT_SECRET, // Ensure this environment variable is set
+          { expiresIn: "1h" } // Token expires in 1 hour
+        );
+
+        // Return the JWT token along with the login response
         res.json({
           message: "Login successful!",
+          token, // Include token in the response
           userId: user.user_id,
           role_id: user.role_id
         });
@@ -221,38 +264,6 @@ app.get("/chats", (req, res) => {
   });
 });
 
-
-
-
-// ======================= SOCKET.IO CONNECTION =======================
-
-io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
-
-  const { userId, chatId } = socket.handshake.query;
-  socket.join(chatId);
-
-  socket.on("sendMessage", (messageData, callback) => {
-    const { userId, chatId, content } = messageData;
-
-    const query = "INSERT INTO messages (chat_id, user_id, content) VALUES (?, ?, ?)";
-    db.query(query, [chatId, userId, content], (err, result) => {
-      if (err) {
-        console.error("Failed to save message:", err);
-        return callback({ success: false, error: "Failed to save message" });
-      }
-
-      const savedMessage = { id: result.insertId, ...messageData };
-      io.to(chatId).emit("newMessage", savedMessage);
-      callback({ success: true, message: savedMessage });
-    });
-  });
-
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
-  });
-});
-
 // Fetch messages for a specific chat room
 app.get("/chatrooms/:chatId/messages", (req, res) => {
   const { chatId } = req.params;
@@ -273,6 +284,91 @@ app.get("/chatrooms/:chatId/messages", (req, res) => {
   });
 });
 
+
+
+// ======================= SOCKET.IO CONNECTION =======================
+
+io.on("connection", (socket) => {
+  console.log("New client connected:", socket.id);
+
+  const { userId } = socket.handshake.query;
+
+  // Fetch undelivered messages for the connected user
+  const fetchUndeliveredMessagesQuery = `
+      SELECT m.message_id, m.content, m.timestamp, m.chat_id, u.username AS sender
+      FROM messages m
+      JOIN users u ON m.user_id = u.user_id
+      WHERE m.delivered = FALSE AND m.chat_id IN (
+          SELECT chat_id FROM user_chatrooms WHERE user_id = ?
+      )
+      ORDER BY m.timestamp ASC
+  `;
+
+  const encryptMessage = (message, publicKey) => {
+    return crypto.publicEncrypt(publicKey, Buffer.from(message)).toString("base64");
+  };
+
+  db.query(fetchUndeliveredMessagesQuery, [userId], (err, messages) => {
+      if (err) {
+          console.error("Failed to fetch undelivered messages:", err);
+          return;
+      }
+
+      // Send each undelivered message to the user
+      messages.forEach((message) => {
+          socket.emit("newMessage", message);
+      });
+
+      // After sending messages, mark them as delivered
+      const messageIds = messages.map((msg) => msg.message_id);
+      if (messageIds.length > 0) {
+          const markAsDeliveredQuery = `
+              UPDATE messages SET delivered = TRUE WHERE message_id IN (?)
+          `;
+          db.query(markAsDeliveredQuery, [messageIds], (updateErr) => {
+              if (updateErr) {
+                  console.error("Failed to update message delivery status:", updateErr);
+              } else {
+                  console.log(`Marked ${messageIds.length} messages as delivered for user ${userId}`);
+              }
+          });
+      }
+  });
+
+  // Listen for sent messages from this client
+  socket.on("sendMessage", async (messageData, callback) => {
+    const { chatId, content, recipientId } = messageData;
+
+    // Fetch the recipient's public key from the database
+    const publicKeyQuery = "SELECT public_key FROM user WHERE user_id = ?";
+    db.query(publicKeyQuery, [recipientId], (err, results) => {
+        if (err || results.length === 0) {
+            return callback({ success: false, error: "Failed to retrieve recipient's public key" });
+        }
+
+        const recipientPublicKey = results[0].public_key;
+        const encryptedContent = encryptMessage(content, recipientPublicKey);
+
+        // Store the encrypted message in the database
+        const query = "INSERT INTO messages (chat_id, user_id, content, delivered) VALUES (?, ?, ?, FALSE)";
+        db.query(query, [chatId, userId, encryptedContent], (err, result) => {
+            if (err) {
+                console.error("Failed to save encrypted message:", err);
+                return callback({ success: false, error: "Failed to save message" });
+            }
+
+            const savedMessage = { id: result.insertId, chatId, content: encryptedContent, delivered: false };
+            io.to(chatId).emit("newMessage", savedMessage);
+            callback({ success: true, message: savedMessage });
+        });
+    });
+  });
+
+  // Handle client disconnect
+  socket.on("disconnect", () => {
+      console.log("Client disconnected:", socket.id);
+  });
+});
 
 // ======================= ADMIN ROUTES =======================
 
