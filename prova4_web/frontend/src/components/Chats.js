@@ -6,6 +6,8 @@ const Chats = () => {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [privateChatUsername, setPrivateChatUsername] = useState("");
+  const [showPrivateChatForm, setShowPrivateChatForm] = useState(false);
 
   const navigate = useNavigate();
   const userId = localStorage.getItem("userId");
@@ -66,6 +68,35 @@ const Chats = () => {
     }
   };
 
+  const handlePrivateChatSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch(
+        `http://localhost:5000/chat/private`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userId, username: privateChatUsername }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to start private chat");
+      }
+
+      const data = await response.json();
+      navigate(`/chatroom/${data.chatId}`);
+    } catch (error) {
+      console.error("Error starting private chat:", error);
+      alert("Failed to start private chat. Please ensure the username exists.");
+    } finally {
+      setShowPrivateChatForm(false);
+      setPrivateChatUsername("");
+    }
+  };
+
   const handleLogout = () => {
     localStorage.clear();
     navigate("/login");
@@ -100,7 +131,7 @@ const Chats = () => {
           chats.map((chat) => (
             <div key={chat.chat_id} className="chat-item">
               <div className="chat-info">
-                <h3>{chat.name}</h3>
+              <h3>{chat.chat_name}</h3>
                 <span className="chat-type">({chat.type})</span>
               </div>
               <p className="last-message">{chat.lastMessage || "No messages yet."}</p>
@@ -123,6 +154,37 @@ const Chats = () => {
         <button className="request-group-button" onClick={handleRequestGroup}>
           Request Group
         </button>
+        <button
+          className="private-chat-button"
+          onClick={() => setShowPrivateChatForm(true)}
+        >
+          Start Private Chat
+        </button>
+        {showPrivateChatForm && (
+        <div className="private-chat-form">
+          <form onSubmit={handlePrivateChatSubmit}>
+            <label>
+              Enter Username:
+              <input
+                type="text"
+                value={privateChatUsername}
+                onChange={(e) => setPrivateChatUsername(e.target.value)}
+                required
+              />
+            </label>
+            <div className="form-actions">
+              <button type="submit">Start Chat</button>
+              <button
+                type="button"
+                onClick={() => setShowPrivateChatForm(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+        
       </div>
     </div>
   );
