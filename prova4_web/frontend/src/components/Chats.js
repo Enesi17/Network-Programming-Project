@@ -44,9 +44,26 @@ const Chats = () => {
     fetchChats();
   }, [isAdmin, userId]);
 
-  const handleChatClick = (chatId) => {
-    localStorage.setItem("chatId", chatId);
-    navigate(`/chatroom/${chatId}`);
+  const handleChatClick = async (chatId) => {
+    try {
+      // Save chatId to localStorage
+      localStorage.setItem("chatId", chatId);
+  
+      // Fetch messages for the selected chat
+      const response = await fetch(`http://localhost:5000/chat/${chatId}/messages`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch messages");
+      }
+  
+      const messages = await response.json();
+      localStorage.setItem("messages", JSON.stringify(messages)); // Optionally store messages locally
+  
+      // Navigate to chatroom
+      navigate(`/chatroom/${chatId}`);
+    } catch (error) {
+      console.error("Error fetching chat messages:", error);
+      alert("Failed to load chat messages. Please try again.");
+    }
   };
 
   const handleLogout = () => {

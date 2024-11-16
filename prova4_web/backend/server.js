@@ -159,6 +159,43 @@ app.get("/user/:userId/chats", async (req, res) => {
   }
 });
 
+//getting chats
+app.get("/chat/:chatId/messages", async (req, res) => {
+  const { chatId } = req.params;
+
+  try {
+    // Query to fetch messages for the specified chat
+    const [messages] = await db.query(
+      `SELECT 
+         m.message_id, 
+         m.content, 
+         m.timestamp, 
+         u.username AS sender 
+       FROM 
+         messages m
+       JOIN 
+         users u ON m.sender_id = u.user_id
+       WHERE 
+         m.chat_id = ?
+       ORDER BY 
+         m.timestamp ASC`,
+      [chatId]
+    );
+
+    // If no messages are found
+    if (messages.length === 0) {
+      return res.status(404).json({ error: "No messages found for this chat." });
+    }
+
+    // Return the messages
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error("Error fetching messages for chat:", error);
+    res.status(500).json({ error: "Failed to fetch messages for the chat." });
+  }
+});
+
+
 //request group creation
 app.post("/request-group", async (req, res) => {
   const { userId, groupName } = req.body;
@@ -190,6 +227,7 @@ app.get("/search-groups", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch groups." });
   }
 });
+
 
 
 const PORT = 5000;

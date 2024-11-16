@@ -62,6 +62,13 @@ CREATE TABLE messages (
     FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
     FOREIGN KEY (sender_id) REFERENCES users(user_id)
 );
+ALTER TABLE messages MODIFY content CHAR(64) NOT NULL;
+
+INSERT INTO messages (chat_id, sender_id, content)
+VALUES
+(1, 1, '99caea8f9127ccdc0e1337e8981b35b2b7186bcac48c82a8e90aa3860e97075d'),
+(1, 1, '8e853651384aef3ed1bc4e5f56d4aa6cfac1720112c347e8355636d6cc559e29');
+
 
 CREATE TABLE chat_members (
     chat_id INT NOT NULL,
