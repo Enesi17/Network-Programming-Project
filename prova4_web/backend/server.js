@@ -4,9 +4,19 @@ const cors = require("cors");
 const mysql = require("mysql2/promise");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const http = require("http");
+const { Server } = require("socket.io");
 require("dotenv").config();
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST"],
+  },
+});
+
 const PORT = 5000;
 
 // Middleware
@@ -25,26 +35,92 @@ const db = mysql.createPool({
 const JWT_SECRET = process.env.JWT_SECRET;
 const algorithm = "aes-256-cbc";
 const key = Buffer.from(process.env.ENCRYPTION_KEY, "hex");
-const iv = Buffer.from("27350e590351004443591d50ef8fddbc", "hex");
 
 // Utility Functions
-function decrypt(encryptedText) {
-  try {
-    const [ivHex, encryptedMessage] = encryptedText.split(":");
-    if (!ivHex || !encryptedMessage) {
-      throw new Error("Invalid encrypted text format. Expected 'iv:ciphertext'.");
-    }
-    const ivBuffer = Buffer.from(ivHex, "hex");
-    const decipher = crypto.createDecipheriv(algorithm, key, ivBuffer);
-
-    let decrypted = decipher.update(encryptedMessage, "hex", "utf8");
-    decrypted += decipher.final("utf8");
-    return decrypted;
-  } catch (error) {
-    console.error("Decryption failed:", error);
-    return null;
-  }
+function encrypt(text) {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(text, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return `${iv.toString("hex")}:${encrypted}`;
 }
+
+function decrypt(encryptedText) {
+  const [ivHex, encryptedMessage] = encryptedText.split(":");
+  const ivBuffer = Buffer.from(ivHex, "hex");
+  const decipher = crypto.createDecipheriv(algorithm, key, ivBuffer);
+  let decrypted = decipher.update(encryptedMessage, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+
+// Online user tracking
+const activeUsers = {};
+
+// Socket.io integration
+io.on("connection", (socket) => {
+  console.log(`User connected: ${socket.id}`);
+
+  // User joins a chat room
+  socket.on("joinRoom", ({ userId, chatId }) => {
+    console.log(`User joined chat room: ${chatId}`);
+    socket.join(chatId);
+    if (!activeUsers[userId]) {
+      activeUsers[userId] = { socketId: socket.id, chatIds: new Set() };
+    }
+    activeUsers[userId].chatIds.add(chatId);
+    io.to(chatId).emit("userOnline", userId);
+  });
+
+  // User leaves a chat room
+  socket.on("leaveRoom", ({ userId, chatId }) => {
+    console.log(`User leaved chat room: ${chatId}`);
+    socket.leave(chatId);
+    if (activeUsers[userId]) {
+      activeUsers[userId].chatIds.delete(chatId);
+      if (activeUsers[userId].chatIds.size === 0) {
+        delete activeUsers[userId];
+        io.emit("userOffline", userId);
+      }
+    }
+  });
+
+  // Handle sending messages
+  socket.on("chatMessage", async ({ chatId, userId, content }) => {
+    console.log(`Message received in chat ${chatId}: ${content}`);
+    try {
+      const encryptedContent = encrypt(content);
+
+      // Store the message in the database
+      await db.query(
+        "INSERT INTO messages (chat_id, sender_id, content, timestamp) VALUES (?, ?, ?, NOW())",
+        [chatId, userId, encryptedContent]
+      );
+
+      // Broadcast the message
+      io.to(chatId).emit("message", {
+        chatId,
+        sender: userId,
+        content,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
+  });
+
+  // Handle disconnect
+  socket.on("disconnect", () => {
+    console.log(`User disconnected: ${socket.id}`);
+    for (const [userId, userData] of Object.entries(activeUsers)) {
+      if (userData.socketId === socket.id) {
+        delete activeUsers[userId];
+        io.emit("userOffline", userId);
+        break;
+      }
+    }
+  });
+});
 
 // Routes
 
@@ -242,7 +318,7 @@ app.get("/search-groups", async (req, res) => {
   }
 });
 
-// Backend: POST /chat/private
+// create /chat/private
 app.post("/chat/private", async (req, res) => {
   const { userId, username } = req.body;
 
@@ -298,7 +374,63 @@ app.post("/chat/private", async (req, res) => {
   }
 });
 
+// Create multicast chat
+app.post("/chat/multicast", async (req, res) => {
+  const { createdBy, chatName, memberIds } = req.body;
+  if (!createdBy || !chatName || !Array.isArray(memberIds) || memberIds.length === 0) {
+    return res.status(400).json({ error: "Invalid request data." });
+  }
 
+  try {
+    const [result] = await db.query(
+      "INSERT INTO chats (chat_name, chat_type, created_by) VALUES (?, 'multicast', ?)",
+      [chatName, createdBy]
+    );
+    const chatId = result.insertId;
+
+    const values = memberIds.map((id) => `(${chatId}, ${id})`).join(",");
+    await db.query(`INSERT INTO chat_members (chat_id, user_id) VALUES ${values}`);
+
+    res.status(201).json({ chatId });
+  } catch (error) {
+    console.error("Error creating multicast chat:", error);
+    res.status(500).json({ error: "Failed to create chat." });
+  }
+});
+
+// handeling messages
+app.get("/chat/:chatId/messages", async (req, res) => {
+  const { chatId } = req.params;
+
+  try {
+    const [messages] = await db.query(
+      `SELECT 
+         m.message_id, 
+         m.content, 
+         m.timestamp, 
+         u.username AS sender 
+       FROM 
+         messages m
+       JOIN 
+         users u ON m.sender_id = u.user_id
+       WHERE 
+         m.chat_id = ?
+       ORDER BY 
+         m.timestamp ASC`,
+      [chatId]
+    );
+
+    const decryptedMessages = messages.map((msg) => ({
+      ...msg,
+      content: decrypt(msg.content),
+    }));
+
+    res.status(200).json(decryptedMessages);
+  } catch (error) {
+    console.error("Error fetching messages for chat:", error);
+    res.status(500).json({ error: "Failed to fetch messages." });
+  }
+});
 
 // Start Server
 app.listen(PORT, () => {

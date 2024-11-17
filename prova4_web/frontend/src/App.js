@@ -4,8 +4,8 @@ import Home from './components/Home';
 import Login from './components/Login';
 import Signup from './components/Signup';
 import Chats from './components/Chats';
+import ChatRoom from './components/ChatRoom';
 // import Profile from './components/Profile';
-// import ChatRoom from './components/ChatRoom';
 // import AddUser from './components/dashboard/NewUser';
 // import UserList from './components/dashboard/UsersList';
 // import AdminDashboard from './components/AdminDashboard';
@@ -18,8 +18,8 @@ function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         <Route path="/chats" element={<Chats />} />
+        <Route path="/chatroom/:chatId" element={<ChatRoom />} />
         {/*  <Route path="/profile" element={<Profile />} />
-        <Route path="/chatroom/:id" element={<ChatRoom />} />
         <Route path="/add-user" element={<AddUser />} />
         <Route path="/user-list" element={<UserList />} />
         <Route path="/admin-dashboard" element={<AdminDashboard />} />
