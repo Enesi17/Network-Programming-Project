@@ -12,12 +12,12 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: "http://localhost:3000", // Frontend origin
     methods: ["GET", "POST"],
   },
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(express.json());
@@ -54,73 +54,121 @@ function decrypt(encryptedText) {
   return decrypted;
 }
 
-// Online user tracking
-const activeUsers = {};
+const onlineUsers = new Map();
 
 // Socket.io integration
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  // User joins a chat room
-  socket.on("joinRoom", ({ userId, chatId }) => {
-    console.log(`User joined chat room: ${chatId}`);
-    socket.join(chatId);
-    if (!activeUsers[userId]) {
-      activeUsers[userId] = { socketId: socket.id, chatIds: new Set() };
-    }
-    activeUsers[userId].chatIds.add(chatId);
-    io.to(chatId).emit("userOnline", userId);
+  // Add user to onlineUsers map
+  socket.on("userOnline", (userId) => {
+    onlineUsers.set(userId, socket.id);
   });
 
-  // User leaves a chat room
-  socket.on("leaveRoom", ({ userId, chatId }) => {
-    console.log(`User leaved chat room: ${chatId}`);
-    socket.leave(chatId);
-    if (activeUsers[userId]) {
-      activeUsers[userId].chatIds.delete(chatId);
-      if (activeUsers[userId].chatIds.size === 0) {
-        delete activeUsers[userId];
-        io.emit("userOffline", userId);
-      }
-    }
-  });
+  // Handle sending a message
+  socket.on("sendMessage", async (data) => {
+    const { chatId, senderId, message } = data;
 
-  // Handle sending messages
-  socket.on("chatMessage", async ({ chatId, userId, content }) => {
-    console.log(`Message received in chat ${chatId}: ${content}`);
     try {
-      const encryptedContent = encrypt(content);
-
-      // Store the message in the database
-      await db.query(
-        "INSERT INTO messages (chat_id, sender_id, content, timestamp) VALUES (?, ?, ?, NOW())",
-        [chatId, userId, encryptedContent]
+      // Fetch all users in the chat
+      const [allUsersInChat] = await db.query(
+        "SELECT user_id FROM chat_members WHERE chat_id = ?",
+        [chatId]
       );
 
-      // Broadcast the message
-      io.to(chatId).emit("message", {
-        chatId,
-        sender: userId,
-        content,
-        timestamp: new Date().toISOString(),
+      const onlineUsersInChat = allUsersInChat.filter((user) =>
+        onlineUsers.has(user.user_id)
+      );
+      const offlineUsers = allUsersInChat.filter(
+        (user) => !onlineUsers.has(user.user_id)
+      );
+
+      // Send messages to online users
+      onlineUsersInChat.forEach((user) => {
+        const receiverSocketId = onlineUsers.get(user.user_id);
+        io.to(receiverSocketId).emit("receiveMessage", {
+          chatId,
+          senderId,
+          message,
+        });
       });
+
+      // Save messages for offline users
+      for (const user of offlineUsers) {
+        await db.query(
+          "INSERT INTO offline_messages (chat_id, sender_id, message) VALUES (?, ?, ?)",
+          [chatId, senderId, message]
+        );
+      }
     } catch (error) {
       console.error("Error sending message:", error);
     }
   });
 
-  // Handle disconnect
-  socket.on("disconnect", () => {
-    console.log(`User disconnected: ${socket.id}`);
-    for (const [userId, userData] of Object.entries(activeUsers)) {
-      if (userData.socketId === socket.id) {
-        delete activeUsers[userId];
-        io.emit("userOffline", userId);
-        break;
-      }
+  socket.on("chatMessage", async ({ chatId, content }) => {
+    try {
+      const senderId = socket.userId || "Unknown"; // Replace with authenticated user's ID if available
+  
+      // Encrypt the message
+      const encryptedContent = encrypt(content);
+  
+      // Save the encrypted message to the database
+      await db.query(
+        `INSERT INTO messages (chat_id, sender_id, content) VALUES (?, ?, ?)`,
+        [chatId, senderId, encryptedContent]
+      );
+  
+      // Broadcast the message in real-time to other users
+      io.to(chatId).emit("message", {
+        sender: socket.username || "Unknown", // Replace with actual username
+        content,
+      });
+    } catch (error) {
+      console.error("Error saving and broadcasting message:", error);
     }
   });
+
+  // Handle user reconnection
+  socket.on("userRejoin", async (data) => {
+    const { userId } = data;
+
+    try {
+      // Mark the user as online
+      onlineUsers.set(userId, socket.id);
+
+      // Fetch undelivered messages for the user
+      const [rows] = await db.query(
+        "SELECT * FROM offline_messages WHERE delivered = FALSE AND chat_id IN (SELECT chat_id FROM chat_members WHERE user_id = ?)",
+        [userId]
+      );
+
+      // Send messages to the user and mark them as delivered
+      for (const message of rows) {
+        socket.emit("receiveMessage", {
+          chatId: message.chat_id,
+          senderId: message.sender_id,
+          message: message.message,
+        });
+
+        await db.query("DELETE FROM offline_messages WHERE id = ?", [
+          message.id,
+        ]);
+      }
+    } catch (error) {
+      console.error("Error delivering messages:", error);
+    }
+  });
+
+  // Remove user from onlineUsers map on disconnect
+  socket.on("disconnect", () => {
+    onlineUsers.forEach((value, key) => {
+      if (value === socket.id) {
+        onlineUsers.delete(key);
+      }
+    });
+  });
 });
+
 
 // Routes
 
@@ -274,14 +322,15 @@ app.get("/chat/:chatId/messages", async (req, res) => {
       [chatId]
     );
 
-    if (messages.length === 0) {
-      return res.status(404).json({ error: "No messages found for this chat." });
-    }
+    const decryptedMessages = messages.map((msg) => ({
+      ...msg,
+      content: decrypt(msg.content), // Use decrypt function from server.js
+    }));
 
-    res.status(200).json(messages);
+    res.status(200).json(decryptedMessages);
   } catch (error) {
     console.error("Error fetching messages for chat:", error);
-    res.status(500).json({ error: "Failed to fetch messages for the chat." });
+    res.status(500).json({ error: "Failed to fetch messages." });
   }
 });
 
@@ -399,40 +448,41 @@ app.post("/chat/multicast", async (req, res) => {
 });
 
 // handeling messages
-app.get("/chat/:chatId/messages", async (req, res) => {
-  const { chatId } = req.params;
+// app.get("/chat/:chatId/messages", async (req, res) => {
+//   const { chatId } = req.params;
 
-  try {
-    const [messages] = await db.query(
-      `SELECT 
-         m.message_id, 
-         m.content, 
-         m.timestamp, 
-         u.username AS sender 
-       FROM 
-         messages m
-       JOIN 
-         users u ON m.sender_id = u.user_id
-       WHERE 
-         m.chat_id = ?
-       ORDER BY 
-         m.timestamp ASC`,
-      [chatId]
-    );
+//   try {
+//     const [messages] = await db.query(
+//       `SELECT 
+//          m.message_id, 
+//          m.content, 
+//          m.timestamp, 
+//          u.username AS sender 
+//        FROM 
+//          messages m
+//        JOIN 
+//          users u ON m.sender_id = u.user_id
+//        WHERE 
+//          m.chat_id = ?
+//        ORDER BY 
+//          m.timestamp ASC`,
+//       [chatId]
+//     );
 
-    const decryptedMessages = messages.map((msg) => ({
-      ...msg,
-      content: decrypt(msg.content),
-    }));
+//     const decryptedMessages = messages.map((msg) => ({
+//       ...msg,
+//       content: decrypt(msg.content),
+//     }));
 
-    res.status(200).json(decryptedMessages);
-  } catch (error) {
-    console.error("Error fetching messages for chat:", error);
-    res.status(500).json({ error: "Failed to fetch messages." });
-  }
-});
+//     res.status(200).json(decryptedMessages);
+//   } catch (error) {
+//     console.error("Error fetching messages for chat:", error);
+//     res.status(500).json({ error: "Failed to fetch messages." });
+//   }
+// });
+
 
 // Start Server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
