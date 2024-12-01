@@ -36,6 +36,23 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const algorithm = "aes-256-cbc";
 const key = Buffer.from(process.env.ENCRYPTION_KEY, "hex");
 
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "Access denied. No token provided." });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: "Invalid or expired token." });
+    }
+    req.user = user; // Attach user info to the request
+    next();
+  });
+};
+
 // Utility Functions
 function encrypt(text) {
   const iv = crypto.randomBytes(16);
@@ -300,39 +317,39 @@ app.get("/user/:userId/chats", async (req, res) => {
   }
 });
 
-// Chat Messages
-app.get("/chat/:chatId/messages", async (req, res) => {
+app.post("/chat/:chatId/message", authenticateToken, async (req, res) => {
   const { chatId } = req.params;
+  const { content } = req.body;
+
+  if (!content || !chatId) {
+    return res.status(400).json({ error: "Chat ID and content are required." });
+  }
 
   try {
-    const [messages] = await db.query(
-      `SELECT 
-         m.message_id, 
-         m.content, 
-         m.timestamp, 
-         u.username AS sender 
-       FROM 
-         messages m
-       JOIN 
-         users u ON m.sender_id = u.user_id
-       WHERE 
-         m.chat_id = ?
-       ORDER BY 
-         m.timestamp ASC`,
-      [chatId]
+    const senderId = req.user.userId; // Ensure this is set by the middleware
+    const encryptedContent = encrypt(content);
+
+    // Save the message to the database
+    const [result] = await db.query(
+      `INSERT INTO messages (chat_id, sender_id, content) VALUES (?, ?, ?)`,
+      [chatId, senderId, encryptedContent]
     );
 
-    const decryptedMessages = messages.map((msg) => ({
-      ...msg,
-      content: decrypt(msg.content), // Use decrypt function from server.js
-    }));
-
-    res.status(200).json(decryptedMessages);
+    // Respond with the saved message details
+    res.status(201).json({
+      message_id: result.insertId,
+      chat_id: chatId,
+      sender: req.user.username, // Use the username from JWT
+      content, // Send plaintext content back to the client
+      timestamp: new Date(),
+    });
   } catch (error) {
-    console.error("Error fetching messages for chat:", error);
-    res.status(500).json({ error: "Failed to fetch messages." });
+    console.error("Error saving message:", error);
+    res.status(500).json({ error: "Failed to save message." });
   }
 });
+
+
 
 // Group Requests
 app.post("/request-group", async (req, res) => {
@@ -447,39 +464,39 @@ app.post("/chat/multicast", async (req, res) => {
   }
 });
 
-// handeling messages
-// app.get("/chat/:chatId/messages", async (req, res) => {
-//   const { chatId } = req.params;
+//handeling messages
+app.get("/chat/:chatId/messages", async (req, res) => {
+  const { chatId } = req.params;
 
-//   try {
-//     const [messages] = await db.query(
-//       `SELECT 
-//          m.message_id, 
-//          m.content, 
-//          m.timestamp, 
-//          u.username AS sender 
-//        FROM 
-//          messages m
-//        JOIN 
-//          users u ON m.sender_id = u.user_id
-//        WHERE 
-//          m.chat_id = ?
-//        ORDER BY 
-//          m.timestamp ASC`,
-//       [chatId]
-//     );
+  try {
+    const [messages] = await db.query(
+      `SELECT 
+         m.message_id, 
+         m.content, 
+         m.timestamp, 
+         u.username AS sender 
+       FROM 
+         messages m
+       JOIN 
+         users u ON m.sender_id = u.user_id
+       WHERE 
+         m.chat_id = ?
+       ORDER BY 
+         m.timestamp ASC`,
+      [chatId]
+    );
 
-//     const decryptedMessages = messages.map((msg) => ({
-//       ...msg,
-//       content: decrypt(msg.content),
-//     }));
+    const decryptedMessages = messages.map((msg) => ({
+      ...msg,
+      content: decrypt(msg.content),
+    }));
 
-//     res.status(200).json(decryptedMessages);
-//   } catch (error) {
-//     console.error("Error fetching messages for chat:", error);
-//     res.status(500).json({ error: "Failed to fetch messages." });
-//   }
-// });
+    res.status(200).json(decryptedMessages);
+  } catch (error) {
+    console.error("Error fetching messages for chat:", error);
+    res.status(500).json({ error: "Failed to fetch messages." });
+  }
+});
 
 
 // Start Server
