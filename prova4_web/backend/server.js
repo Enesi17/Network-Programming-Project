@@ -12,7 +12,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000", // Frontend origin
+    origin: "*", 
     methods: ["GET", "POST"],
   },
 });
@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(express.json());
-app.use(cors({ origin: "http://localhost:3000" }));
+app.use(cors({ origin: "*" }));
 
 // Database connection
 const db = mysql.createPool({
@@ -77,114 +77,84 @@ const onlineUsers = new Map();
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  // Add user to onlineUsers map
-  socket.on("userOnline", (userId) => {
-    onlineUsers.set(userId, socket.id);
+  // Join broadcast chat automatically
+  socket.on("joinBroadcast", (userId) => {
+    socket.join("broadcast");
+    console.log(`User ${userId} joined the broadcast room.`);
   });
 
-  // Handle sending a message
-  socket.on("sendMessage", async (data) => {
-    const { chatId, senderId, message } = data;
+  // Join a specific chat room (group or private)
+  socket.on("joinRoom", ({ chatId, userId }) => {
+    socket.join(chatId); // Join the specific chat room
+    console.log(`User ${userId} joined room ${chatId}`);
+  });
 
+  // Handle messages
+  socket.on("sendMessage", async ({ chatId, senderId, content }) => {
     try {
-      // Fetch all users in the chat
-      const [allUsersInChat] = await db.query(
-        "SELECT user_id FROM chat_members WHERE chat_id = ?",
-        [chatId]
+      const encryptedContent = encrypt(content);
+
+      // Save the message to the database
+      await db.query(
+        `INSERT INTO messages (chat_id, sender_id, content) VALUES (?, ?, ?)`,
+        [chatId, senderId, encryptedContent]
       );
 
-      const onlineUsersInChat = allUsersInChat.filter((user) =>
-        onlineUsers.has(user.user_id)
-      );
-      const offlineUsers = allUsersInChat.filter(
-        (user) => !onlineUsers.has(user.user_id)
-      );
+      // Fetch online users in the chat room
+      const clients = await io.in(chatId).fetchSockets();
 
-      // Send messages to online users
-      onlineUsersInChat.forEach((user) => {
-        const receiverSocketId = onlineUsers.get(user.user_id);
-        io.to(receiverSocketId).emit("receiveMessage", {
+      if (clients.length > 0) {
+        // Broadcast the message to all users in the chat room
+        io.to(chatId).emit("receiveMessage", {
           chatId,
           senderId,
-          message,
+          content, // Plaintext for real-time updates
         });
-      });
-
-      // Save messages for offline users
-      for (const user of offlineUsers) {
-        await db.query(
-          "INSERT INTO offline_messages (chat_id, sender_id, message) VALUES (?, ?, ?)",
-          [chatId, senderId, message]
-        );
       }
     } catch (error) {
       console.error("Error sending message:", error);
     }
   });
 
-  socket.on("chatMessage", async ({ chatId, content }) => {
+  // Handle user reconnection and offline message delivery
+  socket.on("reconnectUser", async (userId) => {
     try {
-      const senderId = socket.userId || "Unknown"; // Replace with authenticated user's ID if available
-  
-      // Encrypt the message
-      const encryptedContent = encrypt(content);
-  
-      // Save the encrypted message to the database
-      await db.query(
-        `INSERT INTO messages (chat_id, sender_id, content) VALUES (?, ?, ?)`,
-        [chatId, senderId, encryptedContent]
-      );
-  
-      // Broadcast the message in real-time to other users
-      io.to(chatId).emit("message", {
-        sender: socket.username || "Unknown", // Replace with actual username
-        content,
-      });
-    } catch (error) {
-      console.error("Error saving and broadcasting message:", error);
-    }
-  });
-
-  // Handle user reconnection
-  socket.on("userRejoin", async (data) => {
-    const { userId } = data;
-
-    try {
-      // Mark the user as online
-      onlineUsers.set(userId, socket.id);
-
       // Fetch undelivered messages for the user
-      const [rows] = await db.query(
-        "SELECT * FROM offline_messages WHERE delivered = FALSE AND chat_id IN (SELECT chat_id FROM chat_members WHERE user_id = ?)",
+      const [messages] = await db.query(
+        "SELECT * FROM offline_messages WHERE delivered = FALSE AND user_id = ?",
         [userId]
       );
 
-      // Send messages to the user and mark them as delivered
-      for (const message of rows) {
+      // Deliver undelivered messages
+      for (const message of messages) {
         socket.emit("receiveMessage", {
           chatId: message.chat_id,
           senderId: message.sender_id,
-          message: message.message,
+          content: decrypt(message.content), // Decrypt content
         });
 
+        // Mark the message as delivered in the database
         await db.query("DELETE FROM offline_messages WHERE id = ?", [
           message.id,
         ]);
       }
     } catch (error) {
-      console.error("Error delivering messages:", error);
+      console.error("Error delivering offline messages:", error);
     }
   });
 
-  // Remove user from onlineUsers map on disconnect
+  // Leave a chat room
+  socket.on("leaveRoom", ({ chatId, userId }) => {
+    socket.leave(chatId);
+    console.log(`User ${userId} left room ${chatId}`);
+  });
+
+  // Handle disconnection
   socket.on("disconnect", () => {
-    onlineUsers.forEach((value, key) => {
-      if (value === socket.id) {
-        onlineUsers.delete(key);
-      }
-    });
+    console.log(`User disconnected: ${socket.id}`);
   });
 });
+
 
 
 // Routes
