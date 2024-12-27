@@ -60,6 +60,7 @@ const ChatRoom = () => {
 
     socketRef.current.on("onlineUsers", (users) => {
       setOnlineUsers(users);
+      setIsMulticast(false);
     });
 
     socketRef.current.on("connect_error", (err) => {

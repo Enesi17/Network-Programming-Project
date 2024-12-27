@@ -16,21 +16,21 @@ const AdminUserList = () => {
     fetchUsers();
   }, []);
 
-  const handleBanUser = async (userId) => {
-    try {
-      const response = await fetch(`http://localhost:5000/users/${userId}/ban`, {
-        method: "POST",
-      });
-      if (response.ok) {
-        alert("User banned successfully!");
-        setUsers(users.filter((user) => user.id !== userId)); // Update UI
-      } else {
-        alert("Failed to ban user.");
-      }
-    } catch (error) {
-      console.error("Error banning user:", error);
-    }
-  };
+  // const handleBanUser = async (userId) => {
+  //   try {
+  //     const response = await fetch(`http://localhost:5000/users/${userId}/ban`, {
+  //       method: "POST",
+  //     });
+  //     if (response.ok) {
+  //       alert("User banned successfully!");
+  //       setUsers(users.filter((user) => user.id !== userId)); // Update UI
+  //     } else {
+  //       alert("Failed to ban user.");
+  //     }
+  //   } catch (error) {
+  //     console.error("Error banning user:", error);
+  //   }
+  // };
 
   return (
   <div className="user-list-container">

@@ -19,7 +19,7 @@ const CreateGroup = () => {
       setSearchResults(null);
     }
   }, [groupName]);
-
+  console.log(searchResults);
   const fetchGroupSuggestions = async (query) => {
     setLoading(true);
     setError("");

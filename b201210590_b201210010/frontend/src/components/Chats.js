@@ -24,8 +24,6 @@ const Chats = () => {
   useEffect(() => {
     const fetchChats = async () => {
       try {
-        console.log(userId);
-        console.log(username);
         const endpoint = isAdmin
           ? "http://localhost:5000/admin/chats"
           : `http://localhost:5000/user/${userId}/chats`;
@@ -51,7 +49,7 @@ const Chats = () => {
     try {
       // Save chatId to localStorage
       localStorage.setItem("chatId", chatId);
-  
+      console.log(username);
       // Fetch messages for the selected chat
       const response = await fetch(`http://localhost:5000/chat/${chatId}/messages`);
       if (!response.ok) {
@@ -107,10 +105,6 @@ const Chats = () => {
     navigate("/createGroup");
   };
 
-  const handleSearchGroups = () => {
-    navigate("/search-groups");
-  };
-
   if (loading) {
     return <div className="loading">Loading chatrooms...</div>;
   }
@@ -149,9 +143,6 @@ const Chats = () => {
         )}
       </div>
       <div className="actions">
-        <button className="join-group-button" onClick={handleSearchGroups}>
-          Search Groups
-        </button>
         <button className="request-group-button" onClick={handleRequestGroup}>
           Search Group
         </button>
@@ -161,37 +152,39 @@ const Chats = () => {
         >
           Start Private Chat
         </button>
-        {showPrivateChatForm && (
-          <div className="private-chat-form-container">
-            <form className="private-chat-form" onSubmit={handlePrivateChatSubmit}>
-              <div className="form-group">
-                <label htmlFor="username" className="form-label">
-                  Enter Username:
-                </label>
-                <input
-                  id="username"
-                  type="text"
-                  className="form-input"
-                  value={privateChatUsername}
-                  onChange={(e) => setPrivateChatUsername(e.target.value)}
-                  required
-                />
+        
+          {showPrivateChatForm && (
+              <div className="private-chat-form-container">
+                <form className="private-chat-form" onSubmit={handlePrivateChatSubmit}>
+                  <div className="form-group">
+                    <label htmlFor="username" className="form-label">
+                      Enter Username:
+                    </label>
+                    <input
+                      id="username"
+                      type="text"
+                      className="form-input"
+                      value={privateChatUsername}
+                      onChange={(e) => setPrivateChatUsername(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-actions">
+                    <button type="submit" className="button button-primary">
+                      Start Chat
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => setShowPrivateChatForm(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
               </div>
-              <div className="form-actions">
-                <button type="submit" className="button button-primary">
-                  Start Chat
-                </button>
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  onClick={() => setShowPrivateChatForm(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-      )}
+          )}
+        
         
       </div>
     </div>
