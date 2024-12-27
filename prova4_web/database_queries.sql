@@ -8,7 +8,6 @@ INSERT INTO roles (role_id, role_name) VALUES
 (1, 'Admin'),
 (2, 'User');
 
-
 CREATE TABLE users (
     user_id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -93,3 +92,49 @@ CREATE TABLE group_requests (
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
+CREATE TABLE offline_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    chat_id INT NOT NULL,           -- References the chat the message belongs to
+    sender_id INT NOT NULL,         -- References the user who sent the message
+    message TEXT NOT NULL,          -- Message content
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, -- Time message was sent
+    delivered BOOLEAN DEFAULT FALSE -- Tracks if the message has been delivered
+);
+
+CREATE TABLE connection_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    socket_id VARCHAR(255),
+    event_type VARCHAR(50),
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE message_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    message TEXT,
+    encrypted_message TEXT,
+    sender_socket_id VARCHAR(255),
+    chat_room VARCHAR(255),
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE group_chats (
+  groupId INT AUTO_INCREMENT PRIMARY KEY,
+  groupName VARCHAR(255) NOT NULL,
+  createdBy INT,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (createdBy) REFERENCES users(user_Id)
+  ON DELETE SET NULL
+);
+
+CREATE TABLE group_members (
+  groupId INT NOT NULL,
+  userId INT NOT NULL,
+  role VARCHAR(50) DEFAULT 'member',
+  joinedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (groupId, userId),
+  FOREIGN KEY (groupId) REFERENCES group_chats(groupId)
+  ON DELETE CASCADE,
+  FOREIGN KEY (userId) REFERENCES users(user_Id)
+  ON DELETE CASCADE
+);
